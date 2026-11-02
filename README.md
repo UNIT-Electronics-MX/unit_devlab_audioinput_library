@@ -112,6 +112,7 @@ The library keeps its I2S and PDM implementations in separate `src/I2S` and
 | `BasicRead` | Peak level as text, 115200 baud |
 | `SerialPlotter` | Decimated samples as text, 115200 baud |
 | `SerialStream` | PCM16 mono, 48 kHz, 2000000 baud |
+| `ComputerAudio` | PCM16 mono, 16 kHz, 921600 baud |
 
 ### PDM
 
@@ -133,9 +134,14 @@ serial port. On ESP32, configure the receiver for 48 kHz and 2000000 baud.
 The RP PDM stream is 8 kHz, so configure the receiver for 8 kHz instead.
 `PDM/SerialSamples` uses text for inspection, not audio playback.
 
-`PDM/ComputerAudio` has a companion `pc_audio.py` in its example directory.
-Install `pyserial` and `sounddevice` on the computer, then run
-`python3 pc_audio.py /dev/ttyUSB0` (adjust the serial port).
+Each `ComputerAudio` example has a companion `pc_audio.py` in its directory.
+Install `pyserial` and `sounddevice` on the computer, upload the I2S or PDM
+`ComputerAudio.ino` sketch, and run `python3 pc_audio.py /dev/ttyUSB0` from
+that example's directory (adjust the serial port). Both use 16 kHz mono PCM16
+at 921600 baud. Close Arduino Serial Monitor before running the script. If the
+I2S signal is too quiet or clips, adjust `I2S_SHIFT` in its sketch.
+The I2S `ComputerAudio` sketch has been compile tested; live computer playback
+has not yet been verified on hardware.
 
 ## License
 
