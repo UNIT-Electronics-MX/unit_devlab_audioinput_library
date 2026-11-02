@@ -5,9 +5,10 @@ RP2040 and RP2350.
 Both inputs return signed 16-bit PCM samples through `read()`.
 
 > [!WARNING]
-> **I2S on RP2040/RP2350 has not been tested on hardware.** The examples
-> compile, but the GPIO wiring and captured audio have not been verified on a
-> physical board. PDM on RP2040/RP2350 has been tested on hardware.
+> **RP2040/RP2350 support has not been tested on physical hardware.** The PDM
+> and I2S examples compile, but microphone wiring and captured audio have not
+> been verified on these boards. Hardware testing has only been performed on
+> ESP32-S3.
 
 The I2S path receives 32-bit Philips-format data, as used by INMP441 and
 ICS-43434 microphones, and shifts it to PCM16. On ESP32, PDM uses the chip's
