@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Play the ComputerAudio sketch's PCM stream on the computer.
+"""Play the PDM/ComputerAudio sketch's PCM stream on the computer.
 
 Install:  pip install pyserial sounddevice
 Usage:    python3 pc_audio.py /dev/ttyUSB0
@@ -18,8 +18,8 @@ import time
 import serial
 import sounddevice as sd
 
-SAMPLE_RATE = 16000  # must match SAMPLE_RATE in ComputerAudio.ino
-BAUD_RATE = 921600   # must match BAUD_RATE in ComputerAudio.ino
+SAMPLE_RATE = 16000  # must match SAMPLE_RATE in PDM_ComputerAudio.ino
+BAUD_RATE = 921600   # must match BAUD_RATE in PDM_ComputerAudio.ino
 HEADER = b"RAW\r\n"  # Serial.println() ends lines with \r\n
 CHUNK_BYTES = 1024
 
@@ -30,24 +30,23 @@ def main():
     parser.add_argument("--device", help="output device name or index (see: python3 -m sounddevice)")
     args = parser.parse_args()
 
-    with serial.Serial(args.port, BAUD_RATE, timeout=1) as ser, sd.RawOutputStream(
+    with serial.Serial(args.port, BAUD_RATE, timeout=0.1) as ser, sd.RawOutputStream(
         samplerate=SAMPLE_RATE, channels=1, dtype="int16", device=args.device
     ) as out:
-        # Pulse EN through RTS so the board restarts and sends the header again,
-        # then skip its boot log up to the header.
-        ser.dtr = False
-        ser.rts = True
-        time.sleep(0.1)
-        ser.rts = False
         ser.reset_input_buffer()
         window = b""
-        deadline = time.time() + 5
+        deadline = time.monotonic() + 5
+        last_request = 0
         while not window.endswith(HEADER):
-            if time.time() > deadline:
+            now = time.monotonic()
+            if now > deadline:
                 raise SystemExit(
-                    "No 'RAW' header received. Is ComputerAudio.ino uploaded, and does "
+                    "No 'RAW' header received. Is PDM_ComputerAudio.ino uploaded, and does "
                     f"its BAUD_RATE match {BAUD_RATE}?"
                 )
+            if now - last_request >= 0.5:
+                ser.write(b"R")
+                last_request = now
             window = (window + ser.read(1))[-len(HEADER):]
         print("Streaming... Ctrl+C to stop")
 

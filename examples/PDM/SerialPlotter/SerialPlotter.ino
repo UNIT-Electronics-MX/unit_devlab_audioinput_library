@@ -1,21 +1,29 @@
 // Prints raw 16-bit samples as text, one per line, for the Arduino Serial Plotter
 // (Tools > Serial Plotter, 115200 baud). Samples are decimated so the serial
 // link can keep up.
-#include <DevLab_I2SPDM.h>
+#include <DevLab_AudioInput.h>
 
-#define PDM_CLK_PIN  GPIO_NUM_22  // Qwiic SCL
-#define PDM_DATA_PIN GPIO_NUM_21  // Qwiic SDA
+#if defined(ARDUINO_ARCH_RP2040)
+#define PDM_CLK_PIN  10
+#define PDM_DATA_PIN 11
+#define SAMPLE_RATE  8000
+#define DECIMATION   8
+#else
+#define PDM_CLK_PIN  GPIO_NUM_2
+#define PDM_DATA_PIN GPIO_NUM_3
+#define SAMPLE_RATE  48000
+#define DECIMATION   48
+#endif
 #define BUFFER_LEN   512
-#define DECIMATION   48           // 48000 Hz / 48 = 1000 values per second
 
-DevLab_I2SPDM pdm;
+DevLab_AudioInput pdm;
 int16_t audioBuffer[BUFFER_LEN];
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  if (!pdm.begin(PDM_CLK_PIN, PDM_DATA_PIN, 48000)) {
+  if (!pdm.beginPDM(PDM_CLK_PIN, PDM_DATA_PIN, SAMPLE_RATE)) {
     Serial.println("ERROR: PDM init failed");
     while (1) delay(1000);
   }
