@@ -4,6 +4,11 @@ Arduino library for capturing mono audio from I2S and PDM microphones on ESP32,
 RP2040 and RP2350.
 Both inputs return signed 16-bit PCM samples through `read()`.
 
+> [!WARNING]
+> **I2S on RP2040/RP2350 has not been tested on hardware.** The examples
+> compile, but the GPIO wiring and captured audio have not been verified on a
+> physical board. PDM on RP2040/RP2350 has been tested on hardware.
+
 The I2S path receives 32-bit Philips-format data, as used by INMP441 and
 ICS-43434 microphones, and shifts it to PCM16. On ESP32, PDM uses the chip's
 hardware PDM-to-PCM converter. PDM PCM capture therefore requires a
@@ -17,10 +22,8 @@ Copy `unit_devlab_audio_input_library` into the Arduino sketchbook `libraries`
 directory and restart the IDE. The examples are then available under
 **File > Examples > DevLab_AudioInput > PDM** or **I2S**. Supported cores are
 ESP32 Arduino (compiled with 3.3.1) and Arduino-Pico compatible `rp2040` cores
-(compiled with UNIT Electronics 3.1.0 on RP2040 and RP2350). PDM has been tested on RP
-hardware. RP I2S has only been compiled; audio capture and the example I2S
-pin mapping are still unverified on hardware. The Arduino mbed RP2040 core is
-not supported by this backend.
+(compiled with UNIT Electronics 3.1.0 on RP2040 and RP2350). The Arduino mbed
+RP2040 core is not supported by this backend.
 
 ## Connections used by the examples
 
