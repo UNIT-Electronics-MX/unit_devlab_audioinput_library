@@ -1,6 +1,8 @@
 #include "DevLab_AudioInput.h"
 
 #if defined(ARDUINO_ARCH_ESP32)
+#include <esp_idf_version.h>
+
 bool DevLab_AudioInput::beginI2S(gpio_num_t bclkPin, gpio_num_t wsPin,
                                  gpio_num_t dataPin, uint32_t sampleRate,
                                  i2s_std_slot_mask_t slot, uint8_t shift) {
@@ -17,7 +19,10 @@ bool DevLab_AudioInput::beginI2S(gpio_num_t bclkPin, gpio_num_t wsPin,
           .sample_rate_hz = sampleRate,
           .clk_src = I2S_CLK_SRC_DEFAULT,
           .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+          // ESP-IDF 5.4 and earlier do not have this member.
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
           .bclk_div = 8,
+#endif
       },
       .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
           I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
