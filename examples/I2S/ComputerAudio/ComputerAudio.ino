@@ -1,5 +1,8 @@
 // Streams I2S microphone audio as mono PCM16 over Serial for computer playback.
 // Run pc_audio.py on the computer; keep SAMPLE_RATE and BAUD_RATE in sync.
+// Each block is framed as 'A' 'U' <sample count> <samples> <checksum>, with
+// uint16 LE count and checksum (sum of the samples), so the computer can drop
+// damaged frames and resync if the USB driver loses bytes.
 #include <DevLab_AudioInput.h>
 
 #if defined(ARDUINO_ARCH_RP2040)
@@ -25,9 +28,10 @@
 #define SAMPLE_RATE 16000
 #define BAUD_RATE   921600
 #define BUFFER_LEN  512
+#define TX_WAIT_MS  10  // max wait for Serial space before dropping a block
 
 DevLab_AudioInput mic;
-int16_t audioBuffer[BUFFER_LEN];
+int16_t frame[2 + BUFFER_LEN + 1];  // header, samples, checksum
 bool streamEnabled = false;
 
 void setup() {
@@ -51,15 +55,22 @@ void setup() {
 }
 
 void loop() {
+  // Answer queued 'R' requests with a single header; extra headers would
+  // land in the audio stream and break the 2-byte sample alignment.
+  bool startRequested = false;
   while (Serial.available() > 0) {
     char command = Serial.read();
     if (command == 'R') {
-      Serial.println("RAW");
-      Serial.flush();
-      streamEnabled = true;
+      startRequested = true;
     } else if (command == 'S') {
+      startRequested = false;
       streamEnabled = false;
     }
+  }
+  if (startRequested) {
+    Serial.println("RAW");
+    Serial.flush();
+    streamEnabled = true;
   }
 
   if (!streamEnabled) {
@@ -67,9 +78,40 @@ void loop() {
     return;
   }
 
-  size_t count = mic.read(audioBuffer, BUFFER_LEN);
+  size_t count = mic.read(frame + 2, BUFFER_LEN);
   if (count > 0) {
-    Serial.write(reinterpret_cast<uint8_t *>(audioBuffer),
-                 count * sizeof(int16_t));
+    uint8_t *bytes = reinterpret_cast<uint8_t *>(frame);
+    bytes[0] = 'A';
+    bytes[1] = 'U';
+    bytes[2] = count & 0xFF;
+    bytes[3] = count >> 8;
+    uint16_t checksum = 0;
+    for (size_t i = 0; i < count; i++) checksum += frame[2 + i];
+    frame[2 + count] = checksum;
+    writeFrame(bytes, 4 + (count + 1) * sizeof(int16_t));
+  }
+}
+
+// If the computer stops reading, the rest of the frame is dropped; pc_audio.py
+// discards incomplete frames and resyncs on the next header.
+void writeFrame(const uint8_t *data, size_t len) {
+  unsigned long start = millis();
+  while (len > 0) {
+    size_t room = Serial.availableForWrite();
+    if (room == 0) {
+      if (millis() - start > TX_WAIT_MS) {
+        // ESP32 native USB can leave its TX interrupt disabled with a full
+        // buffer; flush() re-arms it so sending resumes.
+        Serial.flush();
+        return;
+      }
+      delay(1);
+      continue;
+    }
+    size_t n = room < len ? room : len;
+    Serial.write(data, n);
+    data += n;
+    len -= n;
+    start = millis();  // the timeout measures time without progress
   }
 }
