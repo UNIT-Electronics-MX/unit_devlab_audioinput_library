@@ -136,12 +136,24 @@ The RP PDM stream is 8 kHz, so configure the receiver for 8 kHz instead.
 
 Each `ComputerAudio` example has a companion `pc_audio.py` in its directory.
 Install `pyserial` and `sounddevice` on the computer, upload the I2S or PDM
-`ComputerAudio.ino` sketch, and run `python3 pc_audio.py /dev/ttyUSB0` from
-that example's directory (adjust the serial port). Both use 16 kHz mono PCM16
-at 921600 baud. Close Arduino Serial Monitor before running the script. If the
-I2S signal is too quiet or clips, adjust `I2S_SHIFT` in its sketch.
-The I2S `ComputerAudio` sketch has been compile tested; live computer playback
-has not yet been verified on hardware.
+`ComputerAudio.ino` sketch, and run `python3 pc_audio.py /dev/ttyACM0` from
+that example's directory (native USB; use `/dev/ttyUSB0` or your port with a
+USB-serial chip). Both use 16 kHz mono PCM16 at 921600 baud. Close Arduino
+Serial Monitor before running the script.
+
+The `ComputerAudio` sketches send each block as a frame with a checksum
+(`'A' 'U'`, sample count, samples, checksum). `pc_audio.py` discards damaged
+frames, resyncs if the USB driver loses bytes, and requests the stream again
+if the board stops sending.
+
+If the I2S signal is too quiet or clips, adjust `I2S_SHIFT` in its sketch. The
+PDM `pc_audio.py` also removes the microphone's DC offset and accepts:
+
+| Option | Effect |
+| --- | --- |
+| `--gain <n>` | Software gain applied on the computer (default 4, 1 = unchanged) |
+| `--meter` | Prints the input level (RMS and peak) and the output peak twice a second, to tune `--gain` |
+| `--device <name>` | Output device, e.g. a virtual microphone sink |
 
 ## License
 

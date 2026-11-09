@@ -9,12 +9,22 @@ DevLab_AudioInput *pdmOwner = nullptr;
 #endif
 
 #if defined(ARDUINO_ARCH_ESP32)
+// The read() API returns PCM, so the chip needs the PDM-to-PCM converter.
+// ESP-IDF 5.4+ exposes this as SOC_I2S_SUPPORTS_PDM2PCM and a *_PCM_FMT_*
+// slot macro. Older IDF (e.g. 5.3) has no such macro: PDM RX there always goes
+// through the converter, and I2S_PDM_RX_SLOT_DEFAULT_CONFIG is the PCM config.
+#if SOC_I2S_SUPPORTS_PDM2PCM
+#define DEVLAB_PDM_RX_SLOT_CONFIG I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG
+#elif SOC_I2S_SUPPORTS_PDM_RX && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 4, 0)
+#define DEVLAB_PDM_RX_SLOT_CONFIG I2S_PDM_RX_SLOT_DEFAULT_CONFIG
+#endif
+
 bool DevLab_AudioInput::beginPDM(gpio_num_t clkPin, gpio_num_t dataPin,
                                  uint32_t sampleRate, i2s_pdm_slot_mask_t slot) {
   if (_source != Source::NONE) return false;
 
-#if !SOC_I2S_SUPPORTS_PDM2PCM
-  // The read() API returns PCM, which raw-PDM-only chips cannot provide.
+#ifndef DEVLAB_PDM_RX_SLOT_CONFIG
+  // Raw-PDM-only chips cannot provide PCM.
   return false;
 #else
   i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
@@ -25,7 +35,7 @@ bool DevLab_AudioInput::beginPDM(gpio_num_t clkPin, gpio_num_t dataPin,
 
   i2s_pdm_rx_config_t pdmCfg = {
       .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(sampleRate),
-      .slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(
+      .slot_cfg = DEVLAB_PDM_RX_SLOT_CONFIG(
           I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
       .gpio_cfg = {
           .clk = clkPin,
