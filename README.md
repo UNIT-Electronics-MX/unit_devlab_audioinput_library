@@ -4,11 +4,10 @@ Arduino library for capturing mono audio from I2S and PDM microphones on ESP32,
 RP2040 and RP2350.
 Both inputs return signed 16-bit PCM samples through `read()`.
 
-> [!WARNING]
-> **RP2040/RP2350 support has not been tested on physical hardware.** The PDM
-> and I2S examples compile, but microphone wiring and captured audio have not
-> been verified on these boards. Hardware testing has only been performed on
-> ESP32-S3.
+> [!NOTE]
+> **Hardware tested:** ESP32-S3 (I2S and PDM) and RP2350 PDM on the
+> UNIT Pulsar RP2350A (ICS-41350 microphone, GPIO10/11) at 16 kHz and 48 kHz.
+> RP2040 and RP I2S have only been compile tested.
 
 The I2S path receives 32-bit Philips-format data, as used by INMP441 and
 ICS-43434 microphones, and shifts it to PCM16. On ESP32, PDM uses the chip's
@@ -96,9 +95,21 @@ void loop() {
 For experimental RP I2S, call `mic.beginI2S(0, 1, 2, 48000, true, 16)`
 instead and drive the microphone SEL pin on GPIO3 HIGH to select the right
 channel. The fifth argument is `true` for right or `false` for left; the sixth
-is the conversion shift from 32-bit I2S words to PCM16. The RP PDM core supports the 8 kHz and
-16 kHz example rates; `PDM/SerialStream` uses 48 kHz on ESP32-S3. RP PDM uses
+is the conversion shift from 32-bit I2S words to PCM16. RP PDM accepts sample
+rates up to 48 kHz; `PDM/SerialStream` uses 48 kHz on ESP32-S3. RP PDM uses
 the core's single global `PDM` instance, so only one PDM input can be active.
+
+### RP PDM gain
+
+The level of RP PDM audio depends on the sample rate. Measured on the UNIT
+Pulsar RP2350A with a voice at a normal distance:
+
+| Sample rate | Suggested `setGainPercent()` | Result |
+| --- | ---: | --- |
+| 8-25 kHz | 100 (default) | Voice peaks near 27000, no clipping |
+| 26-48 kHz | about 400 | The core halves its decimation above ~25 kHz, so the output is about 4-6x lower |
+
+At 16 kHz, a gain of 800% clipped about 4% of the samples of a normal voice.
 
 ## Examples
 

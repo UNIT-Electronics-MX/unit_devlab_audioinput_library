@@ -39,6 +39,7 @@ public:
                 uint8_t shift = DEFAULT_I2S_SHIFT);
 #else
   // Arduino-Pico PDM uses the core's PIO converter. One PDM input at a time.
+  // sampleRate up to 48000.
   bool beginPDM(int clkPin, int dataPin, uint32_t sampleRate = 8000);
 
   // Arduino-Pico requires WS/LRCLK = BCLK + 1. Select the mic's active side.

@@ -59,9 +59,12 @@ bool DevLab_AudioInput::beginPDM(gpio_num_t clkPin, gpio_num_t dataPin,
 #else
 bool DevLab_AudioInput::beginPDM(int clkPin, int dataPin,
                                  uint32_t sampleRate) {
+  // Up to 48 kHz. Above ~25 kHz the core halves its decimation, so the PDM
+  // clock stays at 3.07 MHz (inside typical mic specs) but the output level
+  // drops about 4-6x: raise setGainPercent() to compensate (see README).
   if (_source != Source::NONE || pdmOwner != nullptr ||
       clkPin < 0 || dataPin < 0 || clkPin == dataPin ||
-      sampleRate == 0 || sampleRate > 25000) return false;
+      sampleRate == 0 || sampleRate > 48000) return false;
 
   PDM.setCLK(clkPin);
   PDM.setDIN(dataPin);
