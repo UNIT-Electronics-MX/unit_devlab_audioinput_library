@@ -13,10 +13,26 @@
 #define PDM_CLK_PIN  GPIO_NUM_2
 #define PDM_DATA_PIN GPIO_NUM_3
 #endif
-#define SAMPLE_RATE  16000        // 16000 * 2 bytes = 32 KB/s
-#define BAUD_RATE    921600       // ~92 KB/s available
+// SAMPLE_RATE must match --rate in pc_audio.py (default 48000; use --rate 24000 on RP).
+// RP uses 24000 because the stock Arduino-Pico PDM core refuses rates above ~25 kHz
+// (see README).
+#if defined(ARDUINO_ARCH_RP2040)
+#define SAMPLE_RATE  24000        // 24000 samples/s * 2 bytes (int16) = 48 KB/s
+#else
+#define SAMPLE_RATE  48000        // 48000 samples/s * 2 bytes (int16) = 96 KB/s
+#endif
+#define BAUD_RATE    921600       // ignored on native USB; a UART bridge carries ~92 KB/s
 #define BUFFER_LEN   512
-#define GAIN_PERCENT 800          // 50..800, software gain (100 = unchanged)
+// Software gain on the board (50..800, 100 = unchanged), per platform:
+//  - RP2040/RP2350: the core's output is about 4-6x lower above ~25 kHz, so use
+//    400 there and 100 at lower rates (800 clipped ~4% of a voice at 16 kHz).
+//  - ESP32: 600 compensates its lower PDM level; 800 clipped on loud sounds.
+// Further volume adjustment is done on the computer with pc_audio.py --gain.
+#if defined(ARDUINO_ARCH_RP2040)
+#define GAIN_PERCENT ((SAMPLE_RATE) > 25000 ? 400 : 100)
+#else
+#define GAIN_PERCENT 600
+#endif
 #define TX_WAIT_MS   10           // max wait for Serial space before dropping a block
 
 DevLab_AudioInput pdm;
@@ -28,8 +44,10 @@ void setup() {
   delay(1000);
 
   if (!pdm.beginPDM(PDM_CLK_PIN, PDM_DATA_PIN, SAMPLE_RATE)) {
-    Serial.println("ERROR: PDM init failed");
-    while (1) delay(1000);
+    while (1) {  // repeat: the message is lost if the port is opened later
+      Serial.println("ERROR: PDM init failed (sample rate not supported by the core?)");
+      delay(1000);
+    }
   }
 
   pdm.setGainPercent(GAIN_PERCENT);
@@ -51,6 +69,7 @@ void loop() {
   if (startRequested) {
     Serial.println("RAW");
     Serial.flush();
+    while (pdm.read(frame + 2, BUFFER_LEN, 0) > 0) {}  // drop audio buffered before the start
     streamEnabled = true;
   }
 
@@ -86,7 +105,11 @@ void writeFrame(const uint8_t *data, size_t len) {
         Serial.flush();
         return;
       }
+#if defined(ARDUINO_ARCH_RP2040)
+      delayMicroseconds(100);  // delay(1) would cap the USB throughput below 96 KB/s
+#else
       delay(1);
+#endif
       continue;
     }
     size_t n = room < len ? room : len;

@@ -6,8 +6,10 @@ Both inputs return signed 16-bit PCM samples through `read()`.
 
 > [!NOTE]
 > **Hardware tested:** ESP32-S3 (I2S and PDM) and RP2350 PDM on the
-> UNIT Pulsar RP2350A (ICS-41350 microphone, GPIO10/11) at 16 kHz and 48 kHz.
-> RP2040 and RP I2S have only been compile tested.
+> UNIT Pulsar RP2350A (ICS-41350 microphone). RP PDM was tested at 16 kHz and
+> 24 kHz with the stock core, and at 48 kHz only with a patched core (see
+> [RP PDM sample rates](#rp-pdm-sample-rates)). RP2040 and RP I2S have only
+> been compile tested.
 
 The I2S path receives 32-bit Philips-format data, as used by INMP441 and
 ICS-43434 microphones, and shifts it to PCM16. On ESP32, PDM uses the chip's
@@ -95,9 +97,47 @@ void loop() {
 For experimental RP I2S, call `mic.beginI2S(0, 1, 2, 48000, true, 16)`
 instead and drive the microphone SEL pin on GPIO3 HIGH to select the right
 channel. The fifth argument is `true` for right or `false` for left; the sixth
-is the conversion shift from 32-bit I2S words to PCM16. RP PDM accepts sample
-rates up to 48 kHz; `PDM/SerialStream` uses 48 kHz on ESP32-S3. RP PDM uses
+is the conversion shift from 32-bit I2S words to PCM16. RP PDM uses
 the core's single global `PDM` instance, so only one PDM input can be active.
+
+### RP PDM sample rates
+
+`beginPDM()` accepts sample rates up to 48 kHz, but what the Arduino-Pico
+PDM core actually starts depends on its version:
+
+| Sample rate | Stock core (Arduino-Pico 6.3.2, UNIT 3.1.0) | Patched core |
+| --- | --- | --- |
+| 8-25 kHz (up to 25 390 Hz) | Works (tested at 16 and 24 kHz) | Works |
+| 26-48 kHz | `beginPDM()` returns `false` | Works (tested at 48 kHz) |
+
+**Maximum with the stock core: 25 kHz** (the examples use 24 kHz on RP). The
+core's microphone clock check counts the PIO rate (twice the pin clock) against
+the 3.25 MHz microphone limit, so it refuses anything above ~25.39 kHz even
+though the real pin clock at 48 kHz is only 3.07 MHz. To use 48 kHz, change
+line 92 of `libraries/PDM/src/rp2040/PDM.cpp` in the core from
+`(sampleRate * decimation * 2) > 3250000` to
+`(sampleRate * decimation) > 3250000`. With the patch, the PDM examples can use
+up to 48 kHz; in `PDM/ComputerAudio`, set `SAMPLE_RATE` to 48000 and run
+`pc_audio.py` without `--rate`.
+
+### RP PDM channel (left/right)
+
+A PDM microphone drives its data line only in half of each clock cycle: SELECT
+low (left) and SELECT high (right) use opposite halves. The Arduino-Pico PDM
+core samples at one fixed clock edge, so `beginPDM()` takes an optional last
+argument:
+
+```cpp
+mic.beginPDM(10, 11, 16000);        // default: core's sampling, nothing changed
+mic.beginPDM(10, 11, 16000, true);  // microphone with SELECT/LR high (right)
+```
+
+`rightChannel = true` inverts the CLK pin output after the core starts, which
+moves the core's sampling edge to the other half of the cycle. It is off by
+default, so existing sketches behave as before. This is experimental: it
+compiles on RP2350 and RP2040, but it has not been verified on hardware yet. If
+a right-channel microphone sounds worse with `true`, leave it `false`. ESP32
+selects the channel with the `slot` argument of `beginPDM()` instead.
 
 ### RP PDM gain
 
@@ -107,7 +147,7 @@ Pulsar RP2350A with a voice at a normal distance:
 | Sample rate | Suggested `setGainPercent()` | Result |
 | --- | ---: | --- |
 | 8-25 kHz | 100 (default) | Voice peaks near 27000, no clipping |
-| 26-48 kHz | about 400 | The core halves its decimation above ~25 kHz, so the output is about 4-6x lower |
+| 26-48 kHz (patched core) | about 400 | The core halves its decimation above ~25 kHz, so the output is about 4-6x lower |
 
 At 16 kHz, a gain of 800% clipped about 4% of the samples of a normal voice.
 
@@ -133,7 +173,7 @@ The library keeps its I2S and PDM implementations in separate `src/I2S` and
 | `SerialPlotter` | Decimated samples as text, 115200 baud |
 | `SerialSamples` | Every PCM16 sample as text, 8 kHz, 115200 baud |
 | `SerialStream` | PCM16 mono, 48 kHz on ESP32-S3 or 8 kHz on RP, 2000000 baud |
-| `ComputerAudio` | PCM16 mono, 16 kHz, 921600 baud |
+| `ComputerAudio` | PCM16 mono, 48 kHz on ESP32-S3 or 24 kHz on RP, 921600 baud |
 
 The serial stream sketches send a `RAW` line before audio. Send `R` to
 resynchronize and resume streaming, or `S` to stop it. In `I2S/SerialStream`,
@@ -149,7 +189,8 @@ Each `ComputerAudio` example has a companion `pc_audio.py` in its directory.
 Install `pyserial` and `sounddevice` on the computer, upload the I2S or PDM
 `ComputerAudio.ino` sketch, and run `python3 pc_audio.py /dev/ttyACM0` from
 that example's directory (native USB; use `/dev/ttyUSB0` or your port with a
-USB-serial chip). Both use 16 kHz mono PCM16 at 921600 baud. Close Arduino
+USB-serial chip). The I2S example uses 16 kHz and the PDM example 48 kHz (24 kHz on RP, so run
+`pc_audio.py --rate 24000` there), all mono PCM16 at 921600 baud. Close Arduino
 Serial Monitor before running the script.
 
 The `ComputerAudio` sketches send each block as a frame with a checksum
@@ -162,9 +203,14 @@ PDM `pc_audio.py` also removes the microphone's DC offset and accepts:
 
 | Option | Effect |
 | --- | --- |
-| `--gain <n>` | Software gain applied on the computer (default 4, 1 = unchanged) |
+| `--rate <hz>` | Sample rate, must match `SAMPLE_RATE` in the sketch (default 48000; 24000 on RP) |
+| `--gain <n>` | Software gain applied on the computer (default 1 = unchanged; raise it to taste) |
 | `--meter` | Prints the input level (RMS and peak) and the output peak twice a second, to tune `--gain` |
 | `--device <name>` | Output device, e.g. a virtual microphone sink |
+
+Gain is applied in two stages that multiply: `GAIN_PERCENT` in the sketch (set per
+platform) and `--gain` on the computer (default 1, so the sketch level is
+played unchanged).
 
 ## License
 

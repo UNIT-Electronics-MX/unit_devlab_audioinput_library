@@ -4,7 +4,8 @@
 Install:  pip install pyserial sounddevice
 Usage:    python3 pc_audio.py /dev/ttyACM0   (native USB; /dev/ttyUSB0 with a USB-serial chip)
           python3 pc_audio.py /dev/ttyACM0 --device esp_mic   # to a virtual mic
-          python3 pc_audio.py /dev/ttyACM0 --gain 8           # louder (default 4)
+          python3 pc_audio.py /dev/ttyACM0 --gain 2           # louder (default 1 = unchanged)
+          python3 pc_audio.py /dev/ttyACM0 --rate 24000       # RP2040/RP2350 (sketch rate)
           python3 pc_audio.py /dev/ttyACM0 --meter            # print input level
 
 Close the Arduino Serial Monitor first: only one program can use the port.
@@ -23,22 +24,24 @@ from array import array
 import serial
 import sounddevice as sd
 
-SAMPLE_RATE = 16000  # must match SAMPLE_RATE in ComputerAudio.ino
+DEFAULT_RATE = 48000  # --rate must match SAMPLE_RATE in ComputerAudio.ino (24000 on RP)
 BAUD_RATE = 921600   # must match BAUD_RATE in ComputerAudio.ino
 HEADER = b"RAW\r\n"  # Serial.println() ends lines with \r\n
 FRAME_MAGIC = b"AU"
 MAX_FRAME_SAMPLES = 512  # BUFFER_LEN in ComputerAudio.ino
 CHUNK_BYTES = 1024
-MAX_BUFFER_BYTES = SAMPLE_RATE * 2 // 5  # 200 ms; older audio is dropped to keep latency low
+BUFFER_SECONDS = 0.2  # older audio is dropped to keep latency low
 STALL_SECONDS = 1  # re-request the stream after this long without data
-DC_POLE = 0.995      # DC blocker: the PDM mic output sits on a constant offset
+DC_CUTOFF_HZ = 15    # DC blocker: the PDM mic output sits on a constant offset
+
 
 
 class Amplifier:
     """Removes the DC offset, then applies a gain with clipping."""
 
-    def __init__(self, gain):
+    def __init__(self, gain, rate):
         self.gain = gain
+        self.pole = 1 - 2 * math.pi * DC_CUTOFF_HZ / rate
         self.prev_in = 0.0
         self.prev_out = 0.0
         self.in_rms = 0.0
@@ -52,7 +55,7 @@ class Amplifier:
         in_peak = 0.0
         out_peak = 0
         for i, x in enumerate(samples):
-            y = x - self.prev_in + DC_POLE * self.prev_out
+            y = x - self.prev_in + self.pole * self.prev_out
             self.prev_in, self.prev_out = x, y
             in_sq += y * y
             in_peak = max(in_peak, abs(y))
@@ -68,8 +71,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("port", help="serial port, e.g. /dev/ttyACM0 or /dev/ttyUSB0")
     parser.add_argument("--device", help="output device name or index (see: python3 -m sounddevice)")
-    parser.add_argument("--gain", type=float, default=4.0,
-                        help="software gain on the computer, 1 = unchanged (default 4)")
+    parser.add_argument("--rate", type=int, default=DEFAULT_RATE,
+                        help=f"sample rate, must match SAMPLE_RATE in the sketch (default {DEFAULT_RATE}; 24000 on RP)")
+    parser.add_argument("--gain", type=float, default=1.0,
+                        help="software gain on the computer, 1 = unchanged (default 1)")
     parser.add_argument("--meter", action="store_true",
                         help="print the input level (before gain) twice a second")
     args = parser.parse_args()
@@ -139,8 +144,9 @@ def extract_frames(buf):
 def stream(ser, args):
     # The serial reader and the audio callback run independently, so playback
     # never stalls the port. pending always holds a whole number of samples.
-    amp = Amplifier(args.gain)
+    amp = Amplifier(args.gain, args.rate)
     pending = bytearray()
+    max_buffer = int(args.rate * 2 * BUFFER_SECONDS)
     lock = threading.Lock()
 
     def play(outdata, frames, time_info, status):
@@ -151,7 +157,7 @@ def stream(ser, args):
         outdata[n:] = b"\x00" * (len(outdata) - n)
 
     with sd.RawOutputStream(
-        samplerate=SAMPLE_RATE, channels=1, dtype="int16", device=args.device, callback=play
+        samplerate=args.rate, channels=1, dtype="int16", device=args.device, callback=play
     ):
         print("Streaming... Ctrl+C to stop")
         buf = bytearray()
@@ -177,7 +183,7 @@ def stream(ser, args):
                 audio = amp.process(bytes(audio))
                 with lock:
                     pending += audio
-                    excess = len(pending) - MAX_BUFFER_BYTES
+                    excess = len(pending) - max_buffer
                     if excess > 0:
                         del pending[:excess]
                 if args.meter and time.monotonic() - last_meter >= 0.5:

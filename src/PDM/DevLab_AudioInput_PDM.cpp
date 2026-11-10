@@ -2,9 +2,36 @@
 
 #if defined(ARDUINO_ARCH_RP2040) && !defined(__MBED__)
 #include <PDM.h>
+#include "hardware/gpio.h"
 
 namespace {
 DevLab_AudioInput *pdmOwner = nullptr;
+int pdmClkPin = -1;
+
+// The core hands over one block of only 32-64 samples (1.3 ms at 48 kHz) and
+// drops the next block if the previous one was not read yet. A DMA interrupt
+// callback moves each block into this ring so read() callers (for example a
+// sketch blocked on USB) do not have to keep up. One writer (interrupt), one
+// reader (read()); head and tail only ever increase.
+constexpr uint32_t PDM_RING_SAMPLES = 8192;  // power of two, ~170 ms at 48 kHz
+int16_t pdmRing[PDM_RING_SAMPLES];
+volatile uint32_t pdmHead = 0;
+volatile uint32_t pdmTail = 0;
+
+void pdmDrainBlock() {
+  int16_t block[128];
+  int bytes = PDM.available();
+  if (bytes < static_cast<int>(sizeof(int16_t))) return;
+  if (bytes > static_cast<int>(sizeof(block))) bytes = sizeof(block);
+  bytes = PDM.read(block, bytes);
+  uint32_t count = bytes > 0 ? bytes / sizeof(int16_t) : 0;
+  uint32_t head = pdmHead;
+  if (PDM_RING_SAMPLES - (head - pdmTail) < count) return;  // full: drop block
+  for (uint32_t i = 0; i < count; ++i) {
+    pdmRing[(head + i) & (PDM_RING_SAMPLES - 1)] = block[i];
+  }
+  pdmHead = head + count;
+}
 }
 #endif
 
@@ -58,7 +85,7 @@ bool DevLab_AudioInput::beginPDM(gpio_num_t clkPin, gpio_num_t dataPin,
 }
 #else
 bool DevLab_AudioInput::beginPDM(int clkPin, int dataPin,
-                                 uint32_t sampleRate) {
+                                 uint32_t sampleRate, bool rightChannel) {
   // Up to 48 kHz. Above ~25 kHz the core halves its decimation, so the PDM
   // clock stays at 3.07 MHz (inside typical mic specs) but the output level
   // drops about 4-6x: raise setGainPercent() to compensate (see README).
@@ -69,8 +96,19 @@ bool DevLab_AudioInput::beginPDM(int clkPin, int dataPin,
   PDM.setCLK(clkPin);
   PDM.setDIN(dataPin);
   PDM.setBufferSize(1024);
-  if (PDM.begin(1, sampleRate) != 1) return false;
+  pdmHead = 0;
+  pdmTail = 0;
+  PDM.onReceive(pdmDrainBlock);
+  if (PDM.begin(1, sampleRate) != 1) {
+    PDM.onReceive(nullptr);
+    return false;
+  }
 
+  // PDM.begin() routes CLK to the PIO, which clears any pad override, so the
+  // inversion is applied afterwards.
+  if (rightChannel) gpio_set_outover(clkPin, GPIO_OVERRIDE_INVERT);
+
+  pdmClkPin = clkPin;
   pdmOwner = this;
   _source = Source::PDM;
   return true;
@@ -86,6 +124,9 @@ void DevLab_AudioInput::endPDM() {
   }
 #else
   PDM.end();
+  PDM.onReceive(nullptr);
+  if (pdmClkPin >= 0) gpio_set_outover(pdmClkPin, GPIO_OVERRIDE_NORMAL);
+  pdmClkPin = -1;
   pdmOwner = nullptr;
 #endif
 }
@@ -103,12 +144,15 @@ size_t DevLab_AudioInput::readPDM(int16_t *buffer, size_t samples,
 #else
   const uint32_t started = millis();
   while (true) {
-    int availableBytes = PDM.available();
-    if (availableBytes >= static_cast<int>(sizeof(int16_t))) {
-      size_t count = static_cast<size_t>(availableBytes) / sizeof(int16_t);
+    uint32_t tail = pdmTail;
+    uint32_t count = pdmHead - tail;
+    if (count > 0) {
       if (count > samples) count = samples;
-      int bytesRead = PDM.read(buffer, count * sizeof(int16_t));
-      return bytesRead > 0 ? bytesRead / sizeof(int16_t) : 0;
+      for (uint32_t i = 0; i < count; ++i) {
+        buffer[i] = pdmRing[(tail + i) & (PDM_RING_SAMPLES - 1)];
+      }
+      pdmTail = tail + count;
+      return count;
     }
     if (millis() - started >= timeoutMs) return 0;
     delay(1);

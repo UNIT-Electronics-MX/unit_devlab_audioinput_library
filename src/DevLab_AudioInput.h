@@ -39,8 +39,13 @@ public:
                 uint8_t shift = DEFAULT_I2S_SHIFT);
 #else
   // Arduino-Pico PDM uses the core's PIO converter. One PDM input at a time.
-  // sampleRate up to 48000.
-  bool beginPDM(int clkPin, int dataPin, uint32_t sampleRate = 8000);
+  // sampleRate up to 48000 (above ~25000 needs the patched core, see README).
+  // rightChannel is false by default and leaves the core's sampling untouched.
+  // Set it to true for a microphone with SELECT/LR high: the CLK pin output is
+  // inverted so the core's fixed sampling edge falls in the right channel's
+  // data window. Experimental on RP: not yet verified on hardware.
+  bool beginPDM(int clkPin, int dataPin, uint32_t sampleRate = 8000,
+                bool rightChannel = false);
 
   // Arduino-Pico requires WS/LRCLK = BCLK + 1. Select the mic's active side.
   bool beginI2S(int bclkPin, int wsPin, int dataPin,

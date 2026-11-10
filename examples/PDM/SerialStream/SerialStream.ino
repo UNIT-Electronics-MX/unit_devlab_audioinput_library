@@ -13,6 +13,13 @@
 #endif
 #define BUFFER_LEN   512
 #define BAUD_RATE    2000000
+// Software gain (50..800, 100 = unchanged). On RP the PDM output is about 4-6x
+// lower above ~25 kHz, so 400 is used there (see README); other cases keep 100.
+#if defined(ARDUINO_ARCH_RP2040)
+#define GAIN_PERCENT ((SAMPLE_RATE) > 25000 ? 400 : 100)
+#else
+#define GAIN_PERCENT 100
+#endif
 
 DevLab_AudioInput pdm;
 int16_t audioBuffer[BUFFER_LEN];
@@ -79,6 +86,7 @@ void setup() {
     Serial.println("ERROR: PDM init failed");
     while (1) delay(1000);
   }
+  pdm.setGainPercent(GAIN_PERCENT);  // 'G<percent>' changes it at runtime
   sendRawHeader();
 }
 
