@@ -14,8 +14,6 @@
 #define PDM_DATA_PIN GPIO_NUM_3
 #endif
 // SAMPLE_RATE must match --rate in pc_audio.py (default 48000; use --rate 24000 on RP).
-// RP uses 24000 because the stock Arduino-Pico PDM core refuses rates above ~25 kHz
-// (see README).
 #if defined(ARDUINO_ARCH_RP2040)
 #define SAMPLE_RATE  24000        // 24000 samples/s * 2 bytes (int16) = 48 KB/s
 #else

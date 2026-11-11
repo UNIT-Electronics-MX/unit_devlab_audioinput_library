@@ -6,9 +6,8 @@ Both inputs return signed 16-bit PCM samples through `read()`.
 
 > [!NOTE]
 > **Hardware tested:** ESP32-S3 (I2S and PDM) and RP2350 PDM on the
-> UNIT Pulsar RP2350A (ICS-41350 microphone). RP PDM was tested at 16 kHz and
-> 24 kHz with the stock core, and at 48 kHz only with a patched core (see
-> [RP PDM sample rates](#rp-pdm-sample-rates)). RP2040 and RP I2S have only
+> UNIT Pulsar RP2350A (ICS-41350 microphone), with the UNIT Electronics core
+> 3.2.0. RP PDM was tested from 16 kHz up to 48 kHz. RP2040 and RP I2S have only
 > been compile tested.
 
 The I2S path receives 32-bit Philips-format data, as used by INMP441 and
@@ -23,8 +22,9 @@ core implements PDM and I2S input using PIO.
 Copy `unit_devlab_audio_input_library` into the Arduino sketchbook `libraries`
 directory and restart the IDE. The examples are then available under
 **File > Examples > DevLab_AudioInput > PDM** or **I2S**. Supported cores are
-ESP32 Arduino (compiled with 3.3.1) and Arduino-Pico compatible `rp2040` cores
-(compiled with UNIT Electronics 3.1.0 on RP2040 and RP2350). The Arduino mbed
+ESP32 Arduino (compiled with 3.3.1) and the UNIT Electronics `rp2040` core
+**3.2.0 or later**, which is required for RP2040/RP2350. Install it from the
+Boards Manager before using the library on those boards. The Arduino mbed
 RP2040 core is not supported by this backend.
 
 ## Connections used by the examples
@@ -102,23 +102,10 @@ the core's single global `PDM` instance, so only one PDM input can be active.
 
 ### RP PDM sample rates
 
-`beginPDM()` accepts sample rates up to 48 kHz, but what the Arduino-Pico
-PDM core actually starts depends on its version:
-
-| Sample rate | Stock core (Arduino-Pico 6.3.2, UNIT 3.1.0) | Patched core |
-| --- | --- | --- |
-| 8-25 kHz (up to 25 390 Hz) | Works (tested at 16 and 24 kHz) | Works |
-| 26-48 kHz | `beginPDM()` returns `false` | Works (tested at 48 kHz) |
-
-**Maximum with the stock core: 25 kHz** (the examples use 24 kHz on RP). The
-core's microphone clock check counts the PIO rate (twice the pin clock) against
-the 3.25 MHz microphone limit, so it refuses anything above ~25.39 kHz even
-though the real pin clock at 48 kHz is only 3.07 MHz. To use 48 kHz, change
-line 92 of `libraries/PDM/src/rp2040/PDM.cpp` in the core from
-`(sampleRate * decimation * 2) > 3250000` to
-`(sampleRate * decimation) > 3250000`. With the patch, the PDM examples can use
-up to 48 kHz; in `PDM/ComputerAudio`, set `SAMPLE_RATE` to 48000 and run
-`pc_audio.py` without `--rate`.
+`beginPDM()` accepts sample rates from 8 kHz up to 48 kHz with the UNIT
+Electronics core 3.2.0 or later. The examples use 24 kHz on RP; to use 48 kHz,
+set `SAMPLE_RATE` to 48000 in `PDM/ComputerAudio` and run `pc_audio.py` without
+`--rate`.
 
 ### RP PDM channel (left/right)
 
@@ -147,7 +134,7 @@ Pulsar RP2350A with a voice at a normal distance:
 | Sample rate | Suggested `setGainPercent()` | Result |
 | --- | ---: | --- |
 | 8-25 kHz | 100 (default) | Voice peaks near 27000, no clipping |
-| 26-48 kHz (patched core) | about 400 | The core halves its decimation above ~25 kHz, so the output is about 4-6x lower |
+| 26-48 kHz | about 400 | The core halves its decimation above ~25 kHz, so the output is about 4-6x lower |
 
 At 16 kHz, a gain of 800% clipped about 4% of the samples of a normal voice.
 
