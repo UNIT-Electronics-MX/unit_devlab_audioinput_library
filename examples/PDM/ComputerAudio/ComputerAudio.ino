@@ -15,7 +15,7 @@
 #endif
 // SAMPLE_RATE must match --rate in pc_audio.py (default 48000; use --rate 24000 on RP).
 #if defined(ARDUINO_ARCH_RP2040)
-#define SAMPLE_RATE  24000        // 24000 samples/s * 2 bytes (int16) = 48 KB/s
+#define SAMPLE_RATE  48000       // 24000 samples/s * 2 bytes (int16) = 48 KB/s
 #else
 #define SAMPLE_RATE  48000        // 48000 samples/s * 2 bytes (int16) = 96 KB/s
 #endif
